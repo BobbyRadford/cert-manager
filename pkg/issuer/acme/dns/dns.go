@@ -42,6 +42,7 @@ import (
 	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/rfc2136"
 	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/route53"
 	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/util"
+	"github.com/jetstack/cert-manager/pkg/issuer/acme/dns/cis"
 	webhookslv "github.com/jetstack/cert-manager/pkg/issuer/acme/dns/webhook"
 	"github.com/jetstack/cert-manager/pkg/logs"
 )
@@ -67,6 +68,7 @@ type dnsProviderConstructors struct {
 	azureDNS     func(environment, clientID, clientSecret, subscriptionID, tenantID, resourceGroupName, hostedZoneName string, dns01Nameservers []string) (*azuredns.DNSProvider, error)
 	acmeDNS      func(host string, accountJson []byte, dns01Nameservers []string) (*acmedns.DNSProvider, error)
 	digitalOcean func(token string, dns01Nameservers []string) (*digitalocean.DNSProvider, error)
+	cis          func(apikey, crn string) (*cis.DNSProvider, error)
 }
 
 // Solver is a solver for the acme dns01 challenge.
@@ -351,6 +353,19 @@ func (s *Solver) solverForChallenge(ctx context.Context, issuer v1alpha2.Generic
 		if err != nil {
 			return nil, providerConfig, fmt.Errorf("error instantiating acmedns challenge solver: %s", err)
 		}
+	case providerConfig.CIS != nil:
+		apikey, err := s.loadSecretData(&providerConfig.CIS.ApiKey)
+		if err != nil {
+			return nil, errors.Wrap(err, "error getting IAM api key for CIS")
+		}
+		crn := providerConfig.CIS.Crn
+
+		impl, err = cis.NewDNSProviderCredentials(
+			string(apikey),
+			crn)
+		if err != nil {
+			return nil, errors.Wrap(err, "error instantiating CIS challenge solver")
+		}
 	default:
 		return nil, providerConfig, fmt.Errorf("no dns provider config specified for challenge")
 	}
@@ -460,6 +475,7 @@ func NewSolver(ctx *controller.Context) (*Solver, error) {
 			azuredns.NewDNSProviderCredentials,
 			acmedns.NewDNSProviderHostBytes,
 			digitalocean.NewDNSProviderCredentials,
+			cis.NewDNSProviderCredentials,
 		},
 		webhookSolvers: initialized,
 	}, nil
