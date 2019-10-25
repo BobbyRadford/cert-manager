@@ -34,7 +34,8 @@ strategy: {}
 
 
 image:
-  repository: quay.io/jetstack/cert-manager-controller
+  repository: afaas-strongloop-local-docker.artifactory.swg-devops.com/bluemix-native-apim/cert-manager/master
+  tag: latest
   # Override the image tag to deploy by setting this variable.
   # If no value is set, the chart's appVersion will be used.
   # tag: canary
