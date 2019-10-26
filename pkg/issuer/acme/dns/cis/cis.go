@@ -23,7 +23,7 @@ import (
 const CISAPIUrl = "https://api.cis.cloud.ibm.com/v1"
 
 // IAMUrl represents the authentication endpoint to call.
-const IAMUrl = "https://iam.bluemix.net"
+var IAMUrl = os.Getenv("IAM_URL")
 
 // DNSProvider is an implementation of the acme.ChallengeProvider interface
 type DNSProvider struct {
@@ -64,21 +64,21 @@ func (c *DNSProvider) Present(domain, token, keyAuth string) error {
 		return err
 	}
 	fqdn, txtValue, _ := util.DNS01Record(domain, keyAuth)
-	zoneId, err := c.getHostedZoneId(fqdn, accessToken)
+	zoneID, err := c.getHostedZoneID(fqdn, accessToken)
 	if err != nil {
 		return err
 	}
-	txtRecordId, err := c.findTxtRecordId(fqdn, zoneId, accessToken)
+	txtRecordID, err := c.findTxtRecordID(fqdn, zoneID, accessToken)
 	if err != nil {
 		return err
 	}
-	if txtRecordId == "" {
-		_, err := c.createTxtRecord(fqdn, zoneId, txtValue, accessToken)
+	if txtRecordID == "" {
+		_, err := c.createTxtRecord(fqdn, zoneID, txtValue, accessToken)
 		if err != nil {
 			return err
 		}
 	} else {
-		_, err := c.updateTxtRecord(txtRecordId, fqdn, zoneId, txtValue, accessToken)
+		_, err := c.updateTxtRecord(txtRecordID, fqdn, zoneID, txtValue, accessToken)
 		if err != nil {
 			return err
 		}
@@ -93,16 +93,16 @@ func (c *DNSProvider) CleanUp(domain, token, keyAuth string) error {
 		return err
 	}
 	fqdn, _, _ := util.DNS01Record(domain, keyAuth)
-	zoneId, err := c.getHostedZoneId(fqdn, accessToken)
+	zoneID, err := c.getHostedZoneID(fqdn, accessToken)
 	if err != nil {
 		return err
 	}
-	txtRecordId, err := c.findTxtRecordId(fqdn, zoneId, accessToken)
+	txtRecordID, err := c.findTxtRecordID(fqdn, zoneID, accessToken)
 	if err != nil {
 		return err
 	}
-	if txtRecordId != "" {
-		_, err = c.deleteTxtRecord(txtRecordId, fqdn, zoneId, accessToken)
+	if txtRecordID != "" {
+		_, err = c.deleteTxtRecord(txtRecordID, fqdn, zoneID, accessToken)
 		if err != nil {
 			return err
 		}
@@ -128,6 +128,13 @@ func (c *DNSProvider) getAccessToken() (string, error) {
 	if resp.StatusCode == http.StatusNoContent {
 		return "", nil
 	}
+	if resp.StatusCode != http.StatusOK {
+		errorBody, readErr := ioutil.ReadAll(resp.Body)
+		if readErr != nil {
+			return "", readErr
+		}
+		return "", fmt.Errorf("IAM API returned %d %s %s", resp.StatusCode, resp.Status, string(errorBody))
+	}
 	iamResponse, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("Failed to read iamResponse -> %v", err)
@@ -141,7 +148,7 @@ func (c *DNSProvider) getAccessToken() (string, error) {
 	return accessToken, nil
 }
 
-func (c *DNSProvider) getHostedZoneId(fqdn, accessToken string) (string, error) {
+func (c *DNSProvider) getHostedZoneID(fqdn, accessToken string) (string, error) {
 	authZone, err := util.FindZoneByFqdn(fqdn, util.RecursiveNameservers)
 	if err != nil {
 		return "", err
@@ -155,14 +162,14 @@ func (c *DNSProvider) getHostedZoneId(fqdn, accessToken string) (string, error) 
 	json.Unmarshal(result, &cisRequestResult)
 	for _, zone := range cisRequestResult.Result {
 		if zone.Name == util.UnFqdn(authZone) {
-			return zone.Id, nil
+			return zone.ID, nil
 		}
 	}
 	return "", errors.New("Zone not found for fqdn")
 }
 
-func (c *DNSProvider) findTxtRecordId(fqdn, zoneId, accessToken string) (string, error) {
-	uri := fmt.Sprintf("/%s/zones/%s/dns_records", url.QueryEscape(c.crn), zoneId)
+func (c *DNSProvider) findTxtRecordID(fqdn, zoneID, accessToken string) (string, error) {
+	uri := fmt.Sprintf("/%s/zones/%s/dns_records", url.QueryEscape(c.crn), zoneID)
 	result, err := c.makeCISRequest("GET", uri, nil, accessToken)
 	if err != nil {
 		return "", err
@@ -172,14 +179,14 @@ func (c *DNSProvider) findTxtRecordId(fqdn, zoneId, accessToken string) (string,
 	for _, record := range cisRequestResult.Result {
 		// txt record already exists; update the existing record
 		if record.Type == "TXT" && record.Name == util.UnFqdn(fqdn) {
-			return record.Id, nil
+			return record.ID, nil
 		}
 	}
 	return "", nil
 }
 
-func (c *DNSProvider) createTxtRecord(fqdn, zoneId, txtValue, accessToken string) (*resultObject, error) {
-	uri := fmt.Sprintf("/%s/zones/%s/dns_records", url.QueryEscape(c.crn), zoneId)
+func (c *DNSProvider) createTxtRecord(fqdn, zoneID, txtValue, accessToken string) (*resultObject, error) {
+	uri := fmt.Sprintf("/%s/zones/%s/dns_records", url.QueryEscape(c.crn), zoneID)
 	body := []byte(fmt.Sprintf(`{"name": "%s", "type": "TXT", "content": "%s"}`, fqdn, txtValue))
 	_, err := c.makeCISRequest("POST", uri, bytes.NewBuffer(body), accessToken)
 	if err != nil {
@@ -188,8 +195,8 @@ func (c *DNSProvider) createTxtRecord(fqdn, zoneId, txtValue, accessToken string
 	return nil, nil
 }
 
-func (c *DNSProvider) updateTxtRecord(txtRecordId, fqdn, zoneId, txtValue, accessToken string) (*resultObject, error) {
-	uri := fmt.Sprintf("/%s/zones/%s/dns_records/%s", url.QueryEscape(c.crn), zoneId, txtRecordId)
+func (c *DNSProvider) updateTxtRecord(txtRecordID, fqdn, zoneID, txtValue, accessToken string) (*resultObject, error) {
+	uri := fmt.Sprintf("/%s/zones/%s/dns_records/%s", url.QueryEscape(c.crn), zoneID, txtRecordID)
 	body := []byte(fmt.Sprintf(`{"name": "%s", "type": "TXT", "content": "%s"}`, fqdn, txtValue))
 	_, err := c.makeCISRequest("PUT", uri, bytes.NewBuffer(body), accessToken)
 	if err != nil {
@@ -198,8 +205,8 @@ func (c *DNSProvider) updateTxtRecord(txtRecordId, fqdn, zoneId, txtValue, acces
 	return nil, nil
 }
 
-func (c *DNSProvider) deleteTxtRecord(txtRecordId, fqdn, zoneId, accessToken string) (*resultObject, error) {
-	uri := fmt.Sprintf("/%s/zones/%s/dns_records/%s", url.QueryEscape(c.crn), zoneId, txtRecordId)
+func (c *DNSProvider) deleteTxtRecord(txtRecordID, fqdn, zoneID, accessToken string) (*resultObject, error) {
+	uri := fmt.Sprintf("/%s/zones/%s/dns_records/%s", url.QueryEscape(c.crn), zoneID, txtRecordID)
 	_, err := c.makeCISRequest("DELETE", uri, nil, accessToken)
 	if err != nil {
 		return nil, err
@@ -224,11 +231,11 @@ func (c *DNSProvider) makeCISRequest(method, uri string, body io.Reader, accessT
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		responsePayload, readErr := ioutil.ReadAll(resp.Body)
-		if readErr == nil {
-			return responsePayload, fmt.Errorf("CIS API returned %d %s", resp.StatusCode, resp.Status)
+		errorBody, readErr := ioutil.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, readErr
 		}
-		return nil, fmt.Errorf("CIS API returned %d %s", resp.StatusCode, resp.Status)
+		return errorBody, fmt.Errorf("CIS API returned %d %s %s", resp.StatusCode, resp.Status, string(errorBody))
 	}
 	responsePayload, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -242,7 +249,7 @@ type cisRequestResult struct {
 }
 
 type resultObject struct {
-	Id   string `json:"id"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"`
 }
