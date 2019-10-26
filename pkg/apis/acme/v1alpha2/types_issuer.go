@@ -194,6 +194,9 @@ type ACMEChallengeSolverDNS01 struct {
 
 	// +optional
 	Webhook *ACMEIssuerDNS01ProviderWebhook `json:"webhook,omitempty"`
+	
+	// +optional
+	CIS *ACMEIssuerDNS01ProviderCIS `json:"cis,omitempty"`
 }
 
 // CNAMEStrategy configures how the DNS01 provider should handle CNAME records
@@ -357,6 +360,13 @@ type ACMEIssuerDNS01ProviderWebhook struct {
 	// implementation's documentation.
 	// +optional
 	Config *apiext.JSON `json:"config,omitempty"`
+}
+
+// ACMEIssuerDNS01ProviderCIS is a structure containing the DNS
+// configuration for CIS DNS—Zone Record Management API
+type ACMEIssuerDNS01ProviderCIS struct {
+	ApiKey SecretKeySelector `json:"apiKeySecretRef"`
+	Crn    string            `json:"crn"`
 }
 
 type ACMEIssuerStatus struct {
